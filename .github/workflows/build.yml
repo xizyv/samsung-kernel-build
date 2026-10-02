@@ -1,34 +1,58 @@
-name: Build Samsung Kernel
+name: Build Test Kernel A32
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Workflow
         uses: actions/checkout@v4
-      
+
       - name: Free Disk Space
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
-          sudo apt-get remove -y azure-cli google-chrome-stable firefox microsoft-edge-stable
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/lib/jvm
+          sudo apt-get remove -y azure-cli google-chrome-stable firefox microsoft-edge-stable mono-complete llvm-12* llvm-13*
           sudo apt-get autoremove -y && sudo apt-get clean
           df -h
-      
-      - name: Install Tools
+
+      - name: Clone Lucretius Kernel
+        run: |
+          git clone --depth=1 https://github.com/stardustps/kernel_samsung_mt6768-lucreticus.git kernel
+          cd kernel
+          echo "Kernel cloned successfully!"
+          ls arch/arm64/configs/ | grep -i a32 || echo "Checking vendor configs..."
+          
+      - name: Install Clang & Dependencies
         run: |
           sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu bc bison flex libssl-dev make git wget
-      
-      - name: Build Kernel
+          sudo apt install -y bc bison flex libssl-dev make libc6-dev libncurses5-dev zip cpio python3 perl lzop libelf-dev dwarves
+          wget https://github.com/kdrag0n/proton-clang/releases/download/20240226/proton-clang-20240226.tar.xz -O clang.tar.xz
+          mkdir clang
+          tar -xJf clang.tar.xz -C clang
+          
+      - name: Configure & Build
         run: |
-          echo "Здесь будет магия сборки!"
-          # Пока просто создадим файл-заглушку
-          mkdir -p out
-          echo "Hello from xizyv kernel!" > out/test_kernel.img
-      
+          cd kernel
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=$(pwd)/../clang/bin/aarch64-linux-gnu-
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export PATH=$(pwd)/../clang/bin:$PATH
+          
+          make O=out a32_defconfig || make O=out vendor/a32_defconfig || make O=out mt6768_a32_defconfig
+          
+          make O=out -j$(nproc) CC=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip LD=ld.lld LLVM=1 LLVM_IAS=1
+          
+      - name: Pack Artifacts
+        run: |
+          cd kernel/out/arch/arm64/boot
+          mkdir -p ../../../output
+          cp Image.gz-dtb ../../../output/Image.gz-dtb
+          [ -f dtbo.img ] && cp dtbo.img ../../../output/dtbo.img || echo "No dtbo found"
+          echo "Built from Lucretius Kernel for SM-A325F" > ../../../output/build_info.txt
+          
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Test-Kernel
-          path: out/test_kernel.img
+          name: Lucretius-Kernel-A32
+          path: kernel/output/
