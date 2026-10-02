@@ -1,71 +1,79 @@
-name: Build Test Kernel A32 
+name: Build Test Kernel A32
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Workflow
-        uses: actions/checkout@v4
-
       - name: Free Disk Space
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/lib/jvm
-          sudo apt-get remove -y azure-cli google-chrome-stable firefox microsoft-edge-stable mono-complete llvm-12* llvm-13*
-          sudo apt-get autoremove -y && sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
           df -h
 
-      - name: Clone Lucretius Kernel
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev make libc6-dev \
+            libncurses5-dev zip cpio python3 perl lzop libelf-dev dwarves \
+            git wget curl gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      - name: Clone kernel
         run: |
           git clone --depth=1 https://github.com/stardustps/kernel_samsung_mt6768-lucreticus.git kernel
-          cd kernel
-          echo "Kernel cloned!"
-          ls arch/arm64/configs/ | grep a32
+          ls kernel/arch/arm64/configs/ | grep -i -E "a32|a325|mt6768"
 
-      - name: Install SD-Clang via Antman
+      - name: Clone Proton Clang 13
         run: |
-          sudo apt update
-          sudo apt install -y bc bison flex libssl-dev make libc6-dev libncurses5-dev zip cpio python3 perl lzop libelf-dev dwarves git wget curl
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+          clang/bin/clang --version
 
-          wget https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman -O antman
-          chmod +x antman
-          
-          ./antman --sync=latest
-          
-          ls clang/bin/clang
-
-      - name: Configure & Build
+      - name: Build
         run: |
           cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
-          export PATH=$(pwd)/../clang/bin:$PATH
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          
-          make O=out a32_defconfig
-          
+          export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+
+          DEFCONFIG=$(ls arch/arm64/configs/ | grep -i -E "^a32.*defconfig" | head -n1)
+          echo "Using defconfig: $DEFCONFIG"
+
+          make O=out $DEFCONFIG \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu-
+
           make O=out -j$(nproc) \
             CC=clang \
+            LD=ld.lld \
             AR=llvm-ar \
             NM=llvm-nm \
             OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
-            LD=ld.lld \
-            LLVM=1 \
-            LLVM_IAS=1
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            2>&1 | tee build.log
 
       - name: Pack Artifacts
         run: |
+          mkdir -p kernel/output
           cd kernel/out/arch/arm64/boot
-          mkdir -p ../../../output
-          cp Image.gz-dtb ../../../output/Image.gz-dtb
-          [ -f dtbo.img ] && cp dtbo.img ../../../output/dtbo.img || echo "No dtbo"
-          echo "Built by xizyv using Lucretius + SD-Clang" > ../../../output/build_info.txt
+          for f in Image.gz-dtb Image.gz Image dtbo.img; do
+            [ -f "$f" ] && cp "$f" ../../../../output/ || true
+          done
+          ls -la ../../../../output/
 
-      - name: Upload Artifact
+      - name: Upload Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Lucretius-A32-Fixed
+          name: Lucretius-A32
           path: kernel/output/
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: kernel/build.log
