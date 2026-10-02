@@ -29,6 +29,7 @@ jobs:
 
       - name: Build
         run: |
+          set -o pipefail
           cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
