@@ -22,27 +22,28 @@ jobs:
           echo "Kernel cloned successfully!"
           ls arch/arm64/configs/ | grep -i a32 || echo "Checking vendor configs..."
           
-      - name: Install Clang & Dependencies
+      - name: Install SD-Clang & Dependencies
         run: |
           sudo apt update
-          sudo apt install -y bc bison flex libssl-dev make libc6-dev libncurses5-dev zip cpio python3 perl lzop libelf-dev dwarves
-          wget https://github.com/kdrag0n/proton-clang/releases/download/20240226/proton-clang-20240226.tar.xz -O clang.tar.xz
-          mkdir clang
-          tar -xJf clang.tar.xz -C clang
+          sudo apt install -y bc bison flex libssl-dev make libc6-dev libncurses5-dev zip cpio python3 perl lzop libelf-dev dwarves git
           
+          wget https://github.com/Neutron-Toolchains/antman/releases/download/v2.1/antman -O antman
+          chmod +x antman
+          ./antman --sync=latest
+      
       - name: Configure & Build
         run: |
           cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
-          export CROSS_COMPILE=$(pwd)/../clang/bin/aarch64-linux-gnu-
+          # Пути для SD-Clang могут отличаться, проверь папку clang/bin после скачивания
+          export PATH=$(pwd)/../clang/bin:$PATH 
+          export CROSS_COMPILE=aarch64-linux-gnu-
           export CLANG_TRIPLE=aarch64-linux-gnu-
-          export PATH=$(pwd)/../clang/bin:$PATH
           
-          make O=out a32_defconfig || make O=out vendor/a32_defconfig || make O=out mt6768_a32_defconfig
-          
+          make O=out a32_defconfig
           make O=out -j$(nproc) CC=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip LD=ld.lld LLVM=1 LLVM_IAS=1
-          
+
       - name: Pack Artifacts
         run: |
           cd kernel/out/arch/arm64/boot
