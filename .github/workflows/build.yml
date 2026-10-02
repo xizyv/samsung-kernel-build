@@ -1,4 +1,4 @@
-name: Build Test Kernel A32
+name: Build Test Kernel A32 
 on: [workflow_dispatch]
 
 jobs:
@@ -19,41 +19,53 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/stardustps/kernel_samsung_mt6768-lucreticus.git kernel
           cd kernel
-          echo "Kernel cloned successfully!"
-          ls arch/arm64/configs/ | grep -i a32 || echo "Checking vendor configs..."
-          
-      - name: Install SD-Clang & Dependencies
+          echo "Kernel cloned!"
+          ls arch/arm64/configs/ | grep a32
+
+      - name: Install SD-Clang via Antman
         run: |
           sudo apt update
-          sudo apt install -y bc bison flex libssl-dev make libc6-dev libncurses5-dev zip cpio python3 perl lzop libelf-dev dwarves git
-          
-          wget https://github.com/Neutron-Toolchains/antman/releases/download/v2.1/antman -O antman
+          sudo apt install -y bc bison flex libssl-dev make libc6-dev libncurses5-dev zip cpio python3 perl lzop libelf-dev dwarves git wget curl
+
+          wget https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman -O antman
           chmod +x antman
+          
           ./antman --sync=latest
-      
+          
+          ls clang/bin/clang
+
       - name: Configure & Build
         run: |
           cd kernel
           export ARCH=arm64
           export SUBARCH=arm64
-          # Пути для SD-Clang могут отличаться, проверь папку clang/bin после скачивания
-          export PATH=$(pwd)/../clang/bin:$PATH 
+          export PATH=$(pwd)/../clang/bin:$PATH
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CLANG_TRIPLE=aarch64-linux-gnu-
           
           make O=out a32_defconfig
-          make O=out -j$(nproc) CC=clang AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip LD=ld.lld LLVM=1 LLVM_IAS=1
+          
+          make O=out -j$(nproc) \
+            CC=clang \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            LD=ld.lld \
+            LLVM=1 \
+            LLVM_IAS=1
 
       - name: Pack Artifacts
         run: |
           cd kernel/out/arch/arm64/boot
           mkdir -p ../../../output
           cp Image.gz-dtb ../../../output/Image.gz-dtb
-          [ -f dtbo.img ] && cp dtbo.img ../../../output/dtbo.img || echo "No dtbo found"
-          echo "Built from Lucretius Kernel for SM-A325F" > ../../../output/build_info.txt
-          
+          [ -f dtbo.img ] && cp dtbo.img ../../../output/dtbo.img || echo "No dtbo"
+          echo "Built by xizyv using Lucretius + SD-Clang" > ../../../output/build_info.txt
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Lucretius-Kernel-A32
+          name: Lucretius-A32-Fixed
           path: kernel/output/
